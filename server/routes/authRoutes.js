@@ -25,7 +25,13 @@ router.post("/register", async (req, res) => {
 
     await newUser.save();
 
-    res.json({ message: "Registered successfully" });
+    const token = jwt.sign(
+      { id: newUser._id, name: newUser.name },
+      process.env.JWT_SECRET || "fallback_secret",
+      { expiresIn: "1d" }
+    );
+
+    res.json({ token, message: "Registered successfully" });
 
   } catch (err) {
     res.status(500).json({ message: "Register failed" });

@@ -7,11 +7,20 @@ const authMiddleware = require("../middleware/authMiddleware");
 // ================= CREATE =================
 router.post("/", authMiddleware, async (req, res) => {
   try {
-    const { text, secretCode } = req.body;
+    const { text, secretCode, category } = req.body;
+
+    if (!text || text.trim() === "") {
+      return res.status(400).json({ message: "Confession text cannot be empty." });
+    }
+
+    if (!secretCode || secretCode.length < 4) {
+      return res.status(400).json({ message: "Secret code must be at least 4 characters long." });
+    }
 
     const newConfession = new Confession({
-      text,
+      text: text.trim(),
       secretCode,
+      category: category || "Secret",
       user: req.user.id || req.user._id,
     });
 
@@ -26,7 +35,17 @@ router.post("/", authMiddleware, async (req, res) => {
 // ================= GET ALL =================
 router.get("/", async (req, res) => {
   try {
-    const confessions = await Confession.find().sort({ createdAt: -1 });
+    const { category, search } = req.query;
+    
+    let query = {};
+    if (category && category !== "All") {
+      query.category = category;
+    }
+    if (search && search.trim() !== "") {
+      query.text = { $regex: search, $options: "i" };
+    }
+
+    const confessions = await Confession.find(query).sort({ createdAt: -1 });
     res.json(confessions);
   } catch (err) {
     res.status(500).json({ message: "Error fetching confessions" });
@@ -96,9 +115,10 @@ router.delete("/:id", authMiddleware, async (req, res) => {
 });
 
 // ================= REACTION =================
-router.put("/:id/react", async (req, res) => {
+router.put("/:id/react", authMiddleware, async (req, res) => {
   try {
     const { type } = req.body;
+    const userId = req.user.id || req.user._id;
 
     const confession = await Confession.findById(req.params.id);
 
@@ -106,11 +126,26 @@ router.put("/:id/react", async (req, res) => {
       return res.status(404).json({ message: "Not found" });
     }
 
-    if (!confession.reactions[type] && confession.reactions[type] !== 0) {
+    if (!confession.reactions[type]) {
       return res.status(400).json({ message: "Invalid reaction type" });
     }
 
-    confession.reactions[type] += 1;
+    const TYPES = ["like", "love", "laugh"];
+    let didRemove = false;
+
+    TYPES.forEach((t) => {
+      const idx = confession.reactions[t].findIndex(id => id.toString() === userId.toString());
+      if (idx !== -1) {
+        confession.reactions[t].splice(idx, 1);
+        if (t === type) {
+          didRemove = true; // toggling off the exact same reaction
+        }
+      }
+    });
+
+    if (!didRemove) {
+      confession.reactions[type].push(userId);
+    }
 
     await confession.save();
 
